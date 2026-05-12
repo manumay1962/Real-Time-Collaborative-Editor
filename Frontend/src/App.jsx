@@ -18,7 +18,6 @@ function App() {
   const ydoc = useMemo(() => new Y.Doc(), [])
   const yText = useMemo(() => ydoc.getText("monaco"), [ ydoc ])
 
-  // handleMount stores the editor ref and signals that it's ready
   const handleMount = (editor) => {
     editorRef.current = editor
     setEditorMounted(true)
