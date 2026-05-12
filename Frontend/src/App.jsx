@@ -13,86 +13,74 @@ function App() {
   })
   const [ users, setUsers ] = useState([])
   const [ isPlaceholderVisible, setIsPlaceholderVisible ] = useState(true)
-  const providerRef = useRef(null)
+  const [ editorMounted, setEditorMounted ] = useState(false)
 
   const ydoc = useMemo(() => new Y.Doc(), [])
   const yText = useMemo(() => ydoc.getText("monaco"), [ ydoc ])
 
-
+  // handleMount stores the editor ref and signals that it's ready
   const handleMount = (editor) => {
     editorRef.current = editor
-
-    if (providerRef.current) {
-      new MonacoBinding(
-        yText,
-        editorRef.current.getModel(),
-        new Set([ editorRef.current ]),
-        providerRef.current.awareness
-      )
-
-      yText.observe(() => {
-        setIsPlaceholderVisible(yText.length === 0)
-      })
-
-      providerRef.current.on("sync", (isSynced) => {
-        if (isSynced) {
-          setIsPlaceholderVisible(yText.length === 0)
-        }
-      })
-    }
+    setEditorMounted(true)
   }
-
-
-
 
   const handleJoin = (e) => {
     e.preventDefault()
     setUsername(e.target.username.value)
     window.history.pushState({}, "", "?username=" + e.target.username.value)
-
-
-
   }
 
+  // Create provider + MonacoBinding together inside useEffect
+  // so there's no race condition between provider and editor
   useEffect(() => {
-    console.log(username)
+    if (!username || !editorRef.current) return
 
-    if (username) {
-      const provider = new SocketIOProvider("http://localhost:3000", "monaco", ydoc, {
-        autoConnect: true,
-      })
-      providerRef.current = provider
+    const provider = new SocketIOProvider("http://localhost:3000", "monaco", ydoc, {
+      autoConnect: true,
+    })
 
-      provider.awareness.setLocalStateField("user", { username })
+    const binding = new MonacoBinding(
+      yText,
+      editorRef.current.getModel(),
+      new Set([ editorRef.current ]),
+      provider.awareness
+    )
 
+    provider.awareness.setLocalStateField("user", { username })
+
+    // Update user list
+    const updateUsers = () => {
       const states = Array.from(provider.awareness.getStates().values())
-      console.log(states)
       setUsers(states.filter(state => state.user && state.user.username).map(state => state.user))
-
-      provider.awareness.on("change", () => {
-        const states = Array.from(provider.awareness.getStates().values())
-        setUsers(states.filter(state => state.user && state.user.username).map(state => state.user))
-      })
-
-      function handleBeforeUnload() {
-        provider.awareness.setLocalStateField("user", null)
-      }
-
-      window.addEventListener("beforeunload", handleBeforeUnload)
-
-      return () => {
-        provider.disconnect()
-        window.removeEventListener("beforeunload", handleBeforeUnload)
-        providerRef.current = null
-      }
     }
-  }, [
-    username, ydoc
-  ])
+    updateUsers()
+    provider.awareness.on("change", updateUsers)
+
+    // Placeholder visibility
+    const updatePlaceholder = () => {
+      setIsPlaceholderVisible(yText.length === 0)
+    }
+    yText.observe(updatePlaceholder)
+    provider.on("sync", (isSynced) => {
+      if (isSynced) updatePlaceholder()
+    })
+
+    function handleBeforeUnload() {
+      provider.awareness.setLocalStateField("user", null)
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      binding.destroy()
+      provider.disconnect()
+      yText.unobserve(updatePlaceholder)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+    }
+  }, [ username, ydoc, yText, editorMounted ])
 
   if (!username) {
     return (
-      <main className="h-screen w-full bg-gray-950 flex gap-4 p-4 items-center justify-center" >
+      <main className="h-screen w-full bg-gray-950 flex gap-4 p-4 items-center justify-center">
         <form
           onSubmit={handleJoin}
           className="flex flex-col gap-4">
@@ -117,7 +105,7 @@ function App() {
       className="h-screen w-full bg-gray-950 flex gap-4 p-4"
     >
       <aside
-        className="h-full w-1/4 bg-amber-50 rounded-lg "
+        className="h-full w-1/4 bg-amber-50 rounded-lg"
       >
         <h2 className="text-2xl font-bold p-4 border-b border-gray-300">Users</h2>
         <ul className="p-4">
@@ -127,7 +115,6 @@ function App() {
             </li>
           ))}
         </ul>
-
       </aside>
       <section
         className="w-3/4 bg-neutral-800 rounded-lg overflow-hidden relative">
@@ -143,7 +130,6 @@ function App() {
           onMount={handleMount}
         />
       </section>
-
     </main>
   )
 }
