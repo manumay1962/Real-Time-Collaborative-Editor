@@ -13,6 +13,10 @@ const io=new Server(httpServer, {
     }
 })
 
+// Initialize YSocketIO
+const ysocketio = new YSocketIO(io);
+ysocketio.initialize();
+
 
 app.get("/", (req,res) =>{
     res.status(200).json({
